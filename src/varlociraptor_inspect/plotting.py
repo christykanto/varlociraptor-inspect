@@ -34,7 +34,6 @@ def visualize_event_probabilities(record):
 
             probability = 0.0 if value == float("inf") else phred_to_prob(value)
             prob_data.append({"Event": event_name, "Probability": probability})
-
     df = pd.DataFrame(prob_data)
 
     return (
@@ -400,7 +399,6 @@ def visualize_observations(record, sample_name):
                 )
             )
         )
-
         return (odds_layer + edit_layer + other_layer).properties(
             width=220, height=400, title=f"{allele} Allele Observations"
         )
@@ -408,16 +406,21 @@ def visualize_observations(record, sample_name):
     has_ref = len(ref_observations) > 0
     has_alt = len(alt_observations) > 0
 
+    # Show legend on right panel if both have data, otherwise on whichever panel has data
     if has_ref and has_alt:
+        # Both have data - show legend only on ALT (right side)
         ref_chart = create_panel(ref_observations, "REF", True, False)
         alt_chart = create_panel(alt_observations, "ALT", True, True)
     elif has_ref and not has_alt:
+        # Only REF has data - show legend on REF
         ref_chart = create_panel(ref_observations, "REF", True, True)
         alt_chart = create_panel(alt_observations, "ALT", True, False)
     elif has_alt and not has_ref:
+        # Only ALT has data - show legend on ALT
         ref_chart = create_panel(ref_observations, "REF", True, False)
         alt_chart = create_panel(alt_observations, "ALT", True, True)
-    else:
+    else:  # This should NOT be indented extra!
+        # Neither has data
         ref_chart = create_panel(ref_observations, "REF", True, False)
         alt_chart = create_panel(alt_observations, "ALT", True, False)
 
