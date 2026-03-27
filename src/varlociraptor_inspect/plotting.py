@@ -109,15 +109,11 @@ def visualize_allele_frequency_distribution(record, sample_name):
                 # Skip malformed entries
                 continue
 
-    # Explicitly add ML estimate
-    ml_prob = next(
-        (
-            d["Probability"]
-            for d in afd_data
-            if abs(d["Allele Frequency"] - af_ml) < 0.001
-        ),
-        1.0,
-    )
+    # Explicitly add ML estimate - use maximum probability from distribution
+    if afd_data:
+        ml_prob = max(d["Probability"] for d in afd_data)
+    else:
+        ml_prob = 1.0
 
     afd_data.append(
         {
