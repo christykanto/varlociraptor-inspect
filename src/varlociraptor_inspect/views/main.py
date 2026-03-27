@@ -6,6 +6,20 @@ import re
 from varlociraptor_inspect import plotting
 
 
+def normalize_whitespace(text):
+    """Normalize whitespace in VCF records - replace multiple spaces with single tabs"""
+    lines = []
+    for line in text.split("\n"):
+        if line.startswith("#"):
+            # Header lines - keep as is
+            lines.append(line)
+        else:
+            # Data lines - replace multiple spaces with single tab
+            normalized = "\t".join(line.split())
+            lines.append(normalized)
+    return "\n".join(lines)
+
+
 def main_view():
     st.set_page_config(
         page_title="Varlociraptor Inspect",
@@ -21,6 +35,9 @@ def main_view():
 
     if record_text:
         try:
+            # Normalize whitespace first
+            record_text = normalize_whitespace(record_text)
+
             # Check if header is included
             if not record_text.startswith("##fileformat"):
                 # No header - generate from the data line
@@ -39,6 +56,12 @@ def main_view():
 
                 if data_line:
                     fields = data_line.split("\t")
+
+                    if len(fields) < 8:
+                        raise ValueError(
+                            "VCF record must have at least 8 tab-separated columns"
+                        )
+
                     chrom = fields[0]
                     pos = int(fields[1])
                     info_field = fields[7] if len(fields) > 7 else ""
@@ -70,14 +93,25 @@ def main_view():
 
                     # Generate column header if not present
                     if not column_header:
-                        num_samples = (
-                            len(fields) - 9
-                        )  # Subtract the 9 fixed VCF columns
-                        sample_names = [f"sample{i + 1}" for i in range(num_samples)]
-                        column_header = (
-                            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
-                            + "\t".join(sample_names)
-                        )
+                        columns = [
+                            "#CHROM",
+                            "POS",
+                            "ID",
+                            "REF",
+                            "ALT",
+                            "QUAL",
+                            "FILTER",
+                            "INFO",
+                        ]
+
+                        if len(fields) > 8:
+                            num_samples = len(fields) - 9
+                            sample_names = [
+                                f"sample{i + 1}" for i in range(num_samples)
+                            ]
+                            columns.extend(["FORMAT", *sample_names])
+
+                        column_header = "\t".join(columns)
 
                     # Assemble complete VCF
                     record_text = (
@@ -108,20 +142,33 @@ def main_view():
                     chart1 = plotting.visualize_event_probabilities(record)
                     st.altair_chart(chart1, use_container_width=True)
 
-                    # Display plots for each sample
-                    for idx, sample_name in enumerate(sample_names, 1):
-                        st.divider()
-                        st.header(f"Sample {idx}: {sample_name}")
-
-                        st.subheader("Allele Frequency Distribution")
-                        chart2 = plotting.visualize_allele_frequency_distribution(
-                            record, sample_name
+                    # Only show sample plots if samples exist
+                    if not sample_names:
+                        st.warning(
+                            "No sample columns found. Only Event Probabilities are shown."
                         )
-                        st.altair_chart(chart2, use_container_width=True)
+                    else:
+                        # Display plots for each sample
+                        for idx, sample_name in enumerate(sample_names, 1):
+                            st.divider()
+                            st.header(f"Sample {idx}: {sample_name}")
 
-                        st.subheader("Observations")
-                        chart3 = plotting.visualize_observations(record, sample_name)
-                        st.altair_chart(chart3, use_container_width=True)
+                            st.subheader("Allele Frequency Distribution")
+                            chart2 = plotting.visualize_allele_frequency_distribution(
+                                record, sample_name
+                            )
+                            if chart2 is None:
+                                st.warning(
+                                    "AF field is missing or invalid. Cannot display allele frequency distribution."
+                                )
+                            else:
+                                st.altair_chart(chart2, use_container_width=True)
+
+                            st.subheader("Observations")
+                            chart3 = plotting.visualize_observations(
+                                record, sample_name
+                            )
+                            st.altair_chart(chart3, use_container_width=True)
             finally:
                 # Clean up temp file
                 if os.path.exists(tmp_path):
