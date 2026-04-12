@@ -1,3 +1,4 @@
+from itertools import chain
 import streamlit as st
 import pysam
 import tempfile
@@ -6,56 +7,62 @@ import re
 from varlociraptor_inspect import plotting
 
 
-def build_vcf_from_url_params():
+def build_vcf_from_url_params() -> str | None:
     """Build VCF record from URL query parameters"""
     params = st.query_params
-    
+
     if not params:
         return None
-    
+
     # Extract PROB_ fields
-    prob_fields = {}
-    afd_fields = {}
-    obs_fields = {}
-    
+    prob_fields: dict[str, str] = {}
+    afd_fields: dict[str, str] = {}
+    obs_fields: dict[str, str] = {}
+
     for key in params:
         if key.startswith("PROB_"):
             prob_fields[key] = params[key]
         elif key.startswith("AFD_"):
-            sample_name = key.replace("AFD_", "")
+            sample_name = key.removeprefix("AFD_")
             afd_fields[sample_name] = params[key]
         elif key.startswith("OBS_"):
-            sample_name = key.replace("OBS_", "")
+            sample_name = key.removeprefix("OBS_")
             obs_fields[sample_name] = params[key]
-    
+
     if not prob_fields:
         return None
-    
-    # Get all sample names
-    sample_names = sorted(set(list(afd_fields.keys()) + list(obs_fields.keys())))
-    
-    if not sample_names:
-        return None
-    
+
+    # Get all sample names using itertools.chain
+    sample_names = sorted(set(chain(afd_fields.keys(), obs_fields.keys())))
+
+    # Allow URL-driven event-only visualizations (no samples required)
     # Build INFO field
     info_parts = [f"{k}={v}" for k, v in prob_fields.items()]
     info_field = ";".join(info_parts)
-    
+
+    if not sample_names:
+        # No samples - just event probabilities
+        data_line = f"chr1\t1000\t.\tA\tT\t.\t.\t{info_field}"
+        return data_line
+
     # Build sample columns
     format_field = "AF:AFD:DP:OBS"
     sample_columns = []
-    
+
     for sample in sample_names:
         af = "0.5"  # Default
         afd = afd_fields.get(sample, "0.0=0.01")
         dp = "100"  # Default
         obs = obs_fields.get(sample, ".")
-        
+
         sample_columns.append(f"{af}:{afd}:{dp}:{obs}")
-    
+
     # Build complete data line
-    data_line = f"chr1\t1000\t.\tA\tT\t.\t.\t{info_field}\t{format_field}\t" + "\t".join(sample_columns)
-    
+    data_line = (
+        f"chr1\t1000\t.\tA\tT\t.\t.\t{info_field}\t{format_field}\t"
+        + "\t".join(sample_columns)
+    )
+
     return data_line
 
 
@@ -147,7 +154,9 @@ def main_view():
 
                         if len(fields) > 8:
                             num_samples = len(fields) - 9
-                            sample_names = [f"sample{i + 1}" for i in range(num_samples)]
+                            sample_names = [
+                                f"sample{i + 1}" for i in range(num_samples)
+                            ]
                             columns.extend(["FORMAT", *sample_names])
 
                         column_header = "\t".join(columns)
@@ -199,7 +208,9 @@ def main_view():
                             st.altair_chart(chart2, use_container_width=True)
 
                             st.subheader("Observations")
-                            chart3 = plotting.visualize_observations(record, sample_name)
+                            chart3 = plotting.visualize_observations(
+                                record, sample_name
+                            )
                             st.altair_chart(chart3, use_container_width=True)
             finally:
                 if os.path.exists(tmp_path):
