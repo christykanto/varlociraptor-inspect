@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from typing import Sequence
 
 
-def phred_to_prob(phred_value):
+def phred_to_prob(phred_value: float) -> float:
     """Convert PHRED score to probability"""
     if phred_value is None:
         return None
-    return 10 ** (-phred_value / 10)
+    return float(10 ** (-phred_value / 10))
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ProbData:
                     value = float(value)
                 except ValueError:
                     continue
-            probability = 0.0 if value == float("inf") else phred_to_prob(value)
+            probability = 0.0 if value == float("inf") else float(phred_to_prob(value))
             entries.append(ProbEntry(event=event_name, probability=probability))
         return cls(entries=entries)
 
@@ -104,7 +104,7 @@ class AFDData:
                 try:
                     freq, phred = part.split("=")
                     freq = float(freq)
-                    prob = phred_to_prob(float(phred))
+                    prob = float(phred_to_prob(float(phred)))
                     entries.append(AFDEntry(allele_frequency=freq, probability=prob))
                 except (ValueError, TypeError):
                     continue

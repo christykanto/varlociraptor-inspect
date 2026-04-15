@@ -213,7 +213,7 @@ def main_view():
                                 st.divider()
                                 st.header(f"Sample {idx}: {sample_name}")
 
-                                afd = AFDData.from_record(record, sample_name)
+                                afd = AFDData.from_record(record, str(sample_name))
                                 st.subheader("Allele Frequency Distribution")
                                 if afd is not None:
                                     st.altair_chart(
@@ -227,7 +227,7 @@ def main_view():
                                         f"No allele frequency data available for sample {sample_name}."
                                     )
 
-                                obs = OBSData.from_record(record, sample_name)
+                                obs = OBSData.from_record(record, str(sample_name))
                                 st.subheader("Observations")
                                 st.altair_chart(
                                     plotting.visualize_observations(obs),
