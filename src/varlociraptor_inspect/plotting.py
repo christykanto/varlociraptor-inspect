@@ -109,7 +109,12 @@ class AFDData:
                 try:
                     freq, phred = part.split("=")
                     freq = float(freq)
-                    prob = phred_to_prob(float(phred))
+                    entries.append(
+                        AFDEntry(
+                            allele_frequency=freq,
+                            probability=phred_to_prob(float(phred)),
+                        )
+                    )
                 except (ValueError, TypeError) as e:
                     raise ValueError(f"Failed to parse AFD entry '{part}': {e}")
         if not entries:
