@@ -75,7 +75,6 @@ def main_view():
         This will immediately render the visualizations without needing to paste any VCF data manually.
                 """)
 
-        
     url_data = build_vcf_from_url_params()
 
     if url_data is not None:
