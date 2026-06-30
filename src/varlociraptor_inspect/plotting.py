@@ -82,6 +82,11 @@ class AFDData:
             afd_entries = [afd_entries]
         elif not isinstance(afd_entries, Sequence):
             afd_entries = [afd_entries]
+        afd_entries = [
+            e for e in afd_entries if e is not None and str(e) != "" and str(e) != "."
+        ]
+        if not afd_entries:
+            return None
         return cls._parse_afd_entries(sample_name, afd_entries)
 
     @classmethod
