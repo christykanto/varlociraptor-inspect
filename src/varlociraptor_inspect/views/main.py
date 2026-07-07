@@ -6,8 +6,10 @@ import pysam
 import tempfile
 import os
 import re
+import json
 from varlociraptor_inspect import plotting
 from varlociraptor_inspect.plotting import ProbData, AFDData, OBSData
+from varlociraptor_inspect.description import build_record_description
 
 
 def normalize_whitespace(text: str) -> str:
@@ -110,6 +112,153 @@ def render_copy_link_button(query_string: str, key: str):
     )
 
 
+def render_webllm_chat(description: str, key: str) -> None:
+    """Render an in-browser chat widget (via WebLLM) that can answer questions about this record."""
+    description_json = json.dumps(description)
+    components.html(
+        f"""
+        <div id="webllm-chat-{key}" style="font-family: sans-serif; max-width: 700px;">
+          <div id="webllm-status-{key}" style="font-size: 0.85rem; color: #555; margin-bottom: 6px;">
+            Chat with this record using a small language model that runs entirely in your browser
+            (nothing is sent to a server). Requires a WebGPU-capable browser (recent Chrome/Edge).
+          </div>
+          <div style="display:flex; gap: 8px; align-items:center; margin-bottom: 10px;">
+            <select id="webllm-model-{key}" style="padding: 0.3rem; border-radius: 0.4rem;">
+              <option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">Qwen2.5 0.5B (fastest, ~0.4GB)</option>
+              <option value="Llama-3.2-1B-Instruct-q4f16_1-MLC">Llama 3.2 1B (fast, ~0.9GB)</option>
+              <option value="Phi-3.5-mini-instruct-q4f16_1-MLC">Phi-3.5 mini (better quality, ~2.2GB)</option>
+            </select>
+            <button id="webllm-load-btn-{key}" style="
+                padding: 0.4rem 0.9rem;
+                border-radius: 0.5rem;
+                border: 1px solid rgba(49, 51, 63, 0.2);
+                background-color: rgb(255, 255, 255);
+                cursor: pointer;
+            ">Load model &amp; start chat</button>
+          </div>
+          <div id="webllm-progress-{key}" style="font-size: 0.85rem; color: #888; margin-bottom: 10px;"></div>
+          <div id="webllm-messages-{key}" style="
+              display:none;
+              max-height: 320px;
+              overflow-y: auto;
+              border: 1px solid rgba(49, 51, 63, 0.15);
+              border-radius: 0.5rem;
+              padding: 10px;
+              margin-bottom: 8px;
+              background: #fafafa;
+          "></div>
+          <div id="webllm-input-row-{key}" style="display:none; gap: 8px;">
+            <input id="webllm-input-{key}" type="text" placeholder="Ask a question about this record..." style="
+                flex: 1;
+                padding: 0.5rem;
+                border-radius: 0.4rem;
+                border: 1px solid rgba(49, 51, 63, 0.3);
+            "/>
+            <button id="webllm-send-btn-{key}" style="
+                padding: 0.4rem 0.9rem;
+                border-radius: 0.5rem;
+                border: 1px solid rgba(49, 51, 63, 0.2);
+                background-color: rgb(255, 255, 255);
+                cursor: pointer;
+            ">Send</button>
+          </div>
+        </div>
+        <script type="module">
+          const statusEl = document.getElementById("webllm-status-{key}");
+          const loadBtn = document.getElementById("webllm-load-btn-{key}");
+          const modelSelect = document.getElementById("webllm-model-{key}");
+          const progressEl = document.getElementById("webllm-progress-{key}");
+          const messagesEl = document.getElementById("webllm-messages-{key}");
+          const inputRow = document.getElementById("webllm-input-row-{key}");
+          const inputEl = document.getElementById("webllm-input-{key}");
+          const sendBtn = document.getElementById("webllm-send-btn-{key}");
+
+          const systemPrompt = {description_json} + "\\n\\nYou are a helpful assistant answering questions about the variant record above. Always cite the specific numbers from the data above (probabilities, allele frequencies, read counts) in your answer. Do not give generic definitions - explain what these specific numbers imply about this specific variant. If something is not present in the data, say so instead of guessing.";
+          let engine = null;
+          let history = [{{ role: "system", content: systemPrompt }}];
+
+          function appendMessage(role, text) {{
+            const div = document.createElement("div");
+            div.style.margin = "6px 0";
+            div.style.whiteSpace = "pre-wrap";
+            const label = document.createElement("strong");
+            label.textContent = role === "user" ? "You: " : "Assistant: ";
+            div.appendChild(label);
+            const span = document.createElement("span");
+            span.textContent = text;
+            div.appendChild(span);
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return span;
+          }}
+
+          if (!navigator.gpu) {{
+            statusEl.textContent = "Your browser does not support WebGPU, which is required for in-browser chat. Try a recent version of Chrome or Edge.";
+            loadBtn.disabled = true;
+          }}
+
+          loadBtn.addEventListener("click", async () => {{
+            loadBtn.disabled = true;
+            modelSelect.disabled = true;
+            try {{
+              const webllm = await import("https://esm.run/@mlc-ai/web-llm");
+              const modelId = modelSelect.value;
+              progressEl.textContent = "Starting download...";
+              engine = await webllm.CreateMLCEngine(modelId, {{
+                initProgressCallback: (report) => {{
+                  progressEl.textContent = report.text || "Loading model...";
+                }},
+              }});
+              progressEl.textContent = "Model loaded. Ask a question below.";
+              messagesEl.style.display = "block";
+              inputRow.style.display = "flex";
+            }} catch (err) {{
+              progressEl.textContent = "Failed to load model: " + err.message;
+              loadBtn.disabled = false;
+              modelSelect.disabled = false;
+            }}
+          }});
+
+          async function sendMessage() {{
+            const text = inputEl.value.trim();
+            if (!text || !engine) return;
+            inputEl.value = "";
+            sendBtn.disabled = true;
+            appendMessage("user", text);
+            history.push({{ role: "user", content: text }});
+            const replySpan = appendMessage("assistant", "");
+            try {{
+              const stream = await engine.chat.completions.create({{
+                messages: history,
+                stream: true,
+              }});
+              let full = "";
+              for await (const chunk of stream) {{
+                const delta = chunk.choices[0]?.delta?.content || "";
+                full += delta;
+                replySpan.textContent = full;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }}
+              history.push({{ role: "assistant", content: full }});
+            }} catch (err) {{
+              replySpan.textContent = "Error: " + err.message;
+            }} finally {{
+              sendBtn.disabled = false;
+            }}
+          }}
+
+          sendBtn.addEventListener("click", sendMessage);
+          inputEl.addEventListener("keydown", (e) => {{
+            if (e.key === "Enter") {{
+              sendMessage();
+            }}
+          }});
+        </script>
+        """,
+        height=520,
+    )
+
+
 def main_view():
     st.set_page_config(page_title="Varlociraptor Inspect")
     st.title("Varlociraptor Inspect")
@@ -181,6 +330,13 @@ def main_view():
                     st.warning(
                         f"No observation data available for sample {sample_name}."
                     )
+
+            description = build_record_description(
+                prob_data, afd_by_sample, obs_by_sample
+            )
+            st.divider()
+            st.header("Chat with this record")
+            render_webllm_chat(description, key="url")
 
     else:
         record_text = st.text_area(
@@ -339,6 +495,29 @@ def main_view():
                                     plotting.visualize_observations(obs),
                                     use_container_width=True,
                                 )
+
+                            afd_by_sample = {
+                                str(s): AFDData.from_record(record, str(s))
+                                for s in sample_names
+                            }
+                            obs_by_sample = {
+                                str(s): OBSData.from_record(record, str(s))
+                                for s in sample_names
+                            }
+                            description = build_record_description(
+                                prob_data,
+                                afd_by_sample,
+                                obs_by_sample,
+                                variant_info={
+                                    "chrom": record.chrom,
+                                    "pos": record.pos,
+                                    "ref": record.ref,
+                                    "alt": ",".join(str(a) for a in record.alts or ()),
+                                },
+                            )
+                            st.divider()
+                            st.header("Chat with this record")
+                            render_webllm_chat(description, key="paste")
                 finally:
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
