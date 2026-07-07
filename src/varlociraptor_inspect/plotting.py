@@ -256,6 +256,8 @@ class OBSData:
 
 def visualize_event_probabilities(prob_data: ProbData):
     """Visualize event probabilities."""
+    if not prob_data.entries:
+        return None
     df = pd.DataFrame(
         [{"Event": e.event, "Probability": e.probability} for e in prob_data.entries]
     )
