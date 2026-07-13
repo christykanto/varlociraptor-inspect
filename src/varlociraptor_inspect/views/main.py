@@ -1,7 +1,6 @@
 from itertools import chain
 from typing import Sequence
 import streamlit as st
-import streamlit.components.v1 as components
 import pysam
 import tempfile
 import os
@@ -77,37 +76,13 @@ def build_query_string(
     return urlencode(params)
 
 
-def render_copy_link_button(query_string: str, key: str):
-    """Render a button that copies a shareable link to this record to the clipboard."""
-    components.html(
-        f"""
-        <button id="copy-link-btn-{key}" style="
-            padding: 0.4rem 0.8rem;
-            border-radius: 0.4rem;
-            border: 1px solid rgba(49, 51, 63, 0.2);
-            background-color: #f0f2f6;
-            cursor: pointer;
-            font-size: 0.9rem;
-        ">📋 Copy link to this record</button>
-        <span id="copy-link-status-{key}" style="margin-left: 0.5rem; font-size: 0.85rem;"></span>
-        <script>
-            const btn = document.getElementById("copy-link-btn-{key}");
-            const status = document.getElementById("copy-link-status-{key}");
-            btn.addEventListener("click", async () => {{
-                const baseUrl = window.parent.location.origin + window.parent.location.pathname;
-                const fullUrl = baseUrl + "?{query_string}";
-                try {{
-                    await navigator.clipboard.writeText(fullUrl);
-                    status.textContent = "Copied!";
-                    setTimeout(() => {{ status.textContent = ""; }}, 2000);
-                }} catch (err) {{
-                    status.textContent = "Copy failed";
-                }}
-            }});
-        </script>
-        """,
-        height=45,
-    )
+def render_copy_link_button(query_string: str) -> None:
+    """Show a shareable link to this record. st.code has a built-in copy-to-clipboard button."""
+    host = st.context.headers.get("Host", "localhost:8501")
+    scheme = "http" if host.startswith(("localhost", "127.0.0.1")) else "https"
+    url = f"{scheme}://{host}/?{query_string}"
+    st.caption("Shareable link to this record:")
+    st.code(url, language=None, wrap_lines=True)
 
 
 def main_view():
@@ -133,9 +108,7 @@ def main_view():
         obs_fields = {
             k.removeprefix("OBS_"): v for k, v in params.items() if k.startswith("OBS_")
         }
-        render_copy_link_button(
-            build_query_string(prob_fields, afd_fields, obs_fields), key="url"
-        )
+        render_copy_link_button(build_query_string(prob_fields, afd_fields, obs_fields))
 
         st.header("Event Probabilities")
         event_chart = plotting.visualize_event_probabilities(prob_data)
@@ -298,8 +271,7 @@ def main_view():
                                 obs_fields[str(sname)] = str(obs)
 
                         render_copy_link_button(
-                            build_query_string(prob_fields, afd_fields, obs_fields),
-                            key="paste",
+                            build_query_string(prob_fields, afd_fields, obs_fields)
                         )
 
                         prob_data = ProbData.from_record(record)
