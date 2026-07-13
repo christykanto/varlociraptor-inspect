@@ -509,9 +509,9 @@ def main_view():
                                 afd_by_sample,
                                 obs_by_sample,
                                 variant_info={
-                                    "chrom": record.chrom,
-                                    "pos": record.pos,
-                                    "ref": record.ref,
+                                    "chrom": str(record.chrom),
+                                    "pos": str(record.pos),
+                                    "ref": str(record.ref),
                                     "alt": ",".join(str(a) for a in record.alts or ()),
                                 },
                             )

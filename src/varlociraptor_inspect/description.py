@@ -1,12 +1,15 @@
 """Build a plain-text description of a variant record, for use as LLM chat context."""
 
 from varlociraptor_inspect.plotting import AFDData, OBSData, ProbData
+from collections.abc import Mapping
 
 
 def _describe_prob_data(prob_data: ProbData) -> str:
     if not prob_data.entries:
         return "No event probabilities are available for this record."
-    lines = ["Event probabilities (posterior probability that each event is true, 0-1 scale):"]
+    lines = [
+        "Event probabilities (posterior probability that each event is true, 0-1 scale):"
+    ]
     for entry in sorted(prob_data.entries, key=lambda e: -e.probability):
         lines.append(f"- {entry.event}: {entry.probability:.4f}")
     return "\n".join(lines)
@@ -40,7 +43,9 @@ def _describe_obs(obs: OBSData | None, sample_name: str) -> str:
         high_mapq = sum(e.count for e in entries if e.mapq == "High MAPQ")
         odds_breakdown: dict[str, int] = {}
         for e in entries:
-            odds_breakdown[e.posterior_odds] = odds_breakdown.get(e.posterior_odds, 0) + e.count
+            odds_breakdown[e.posterior_odds] = (
+                odds_breakdown.get(e.posterior_odds, 0) + e.count
+            )
         odds_str = ", ".join(
             f"{v} {k}" for k, v in sorted(odds_breakdown.items(), key=lambda kv: -kv[1])
         )
@@ -57,8 +62,8 @@ def _describe_obs(obs: OBSData | None, sample_name: str) -> str:
 
 def build_record_description(
     prob_data: ProbData,
-    afd_by_sample: dict[str, AFDData],
-    obs_by_sample: dict[str, OBSData],
+    afd_by_sample: Mapping[str, AFDData | None],
+    obs_by_sample: Mapping[str, OBSData | None],
     variant_info: dict[str, str] | None = None,
 ) -> str:
     """Build a plain-text description of a variant record for use as LLM context."""
