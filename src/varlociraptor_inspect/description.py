@@ -1,7 +1,8 @@
 """Build a plain-text description of a variant record, for use as LLM chat context."""
 
-from varlociraptor_inspect.plotting import AFDData, OBSData, ProbData
 from collections.abc import Mapping
+
+from varlociraptor_inspect.plotting import AFDData, OBSData, ProbData
 
 
 def _describe_prob_data(prob_data: ProbData) -> str:
@@ -21,8 +22,10 @@ def _describe_afd(afd: AFDData | None, sample_name: str) -> str:
     ml = next((e for e in afd.entries if e.entry_type == "ML Estimate"), None)
     dist_entries = [e for e in afd.entries if e.entry_type != "ML Estimate"]
     lines = [
-        f"Sample {sample_name}: allele frequency distribution over "
-        f"{len(dist_entries)} candidate frequencies."
+        (
+            f"Sample {sample_name}: allele frequency distribution over "
+            f"{len(dist_entries)} candidate frequencies."
+        )
     ]
     if ml is not None:
         lines.append(

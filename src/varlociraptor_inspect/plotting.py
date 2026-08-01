@@ -1,9 +1,10 @@
+import re
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Self
+
 import altair as alt
 import pandas as pd
-import re
-from dataclasses import dataclass
-from typing import Sequence
-from typing import Self
 
 
 def phred_to_prob(phred_value: float) -> float:
@@ -78,9 +79,7 @@ class AFDData:
         afd_entries = sample.get("AFD")
         if afd_entries is None:
             afd_entries = []
-        elif isinstance(afd_entries, str):
-            afd_entries = [afd_entries]
-        elif not isinstance(afd_entries, Sequence):
+        elif isinstance(afd_entries, str) or not isinstance(afd_entries, Sequence):
             afd_entries = [afd_entries]
         afd_entries = [
             e for e in afd_entries if e is not None and str(e) != "" and str(e) != "."
@@ -103,7 +102,7 @@ class AFDData:
         entries = []
         for entry in afd_entries:
             if not isinstance(entry, str):
-                raise ValueError(
+                raise TypeError(
                     f"AFD entry must be a string, got {type(entry).__name__}: {entry!r}"
                 )
             for part in entry.split(","):
