@@ -1,4 +1,5 @@
 from itertools import chain
+from typing import Sequence
 import streamlit as st
 import pysam
 import tempfile
@@ -57,6 +58,33 @@ def build_vcf_from_url_params() -> tuple[ProbData, list[AFDData], list[OBSData]]
     return prob_data, afd_data_list, obs_data_list
 
 
+def build_query_string(
+    prob_fields: dict[str, str], afd_fields: dict[str, str], obs_fields: dict[str, str]
+) -> str:
+    """Build a URL query string from raw PROB/AFD/OBS field values."""
+    from urllib.parse import urlencode
+
+    params: list[tuple[str, str]] = []
+    for event, phred in prob_fields.items():
+        params.append((f"PROB_{event}", str(phred)))
+    for sample, value in obs_fields.items():
+        if value and value != ".":
+            params.append((f"OBS_{sample}", str(value)))
+    for sample, value in afd_fields.items():
+        if value and value != ".":
+            params.append((f"AFD_{sample}", str(value)))
+    return urlencode(params)
+
+
+def render_copy_link_button(query_string: str) -> None:
+    """Show a shareable link to this record. st.code has a built-in copy-to-clipboard button."""
+    host = st.context.headers.get("Host", "localhost:8501")
+    scheme = "http" if host.startswith(("localhost", "127.0.0.1")) else "https"
+    url = f"{scheme}://{host}/?{query_string}"
+    st.caption("Shareable link to this record:")
+    st.code(url, language=None, wrap_lines=True)
+
+
 def main_view():
     st.set_page_config(page_title="Varlociraptor Inspect")
     st.title("Varlociraptor Inspect")
@@ -81,10 +109,26 @@ def main_view():
         prob_data, afd_data_list, obs_data_list = url_data
         st.info("Loaded data from URL parameters")
 
+        params = st.query_params
+        prob_fields = {
+            k.removeprefix("PROB_"): v
+            for k, v in params.items()
+            if k.startswith("PROB_")
+        }
+        afd_fields = {
+            k.removeprefix("AFD_"): v for k, v in params.items() if k.startswith("AFD_")
+        }
+        obs_fields = {
+            k.removeprefix("OBS_"): v for k, v in params.items() if k.startswith("OBS_")
+        }
+        render_copy_link_button(build_query_string(prob_fields, afd_fields, obs_fields))
+
         st.header("Event Probabilities")
-        st.altair_chart(
-            plotting.visualize_event_probabilities(prob_data), use_container_width=True
-        )
+        event_chart = plotting.visualize_event_probabilities(prob_data)
+        if event_chart is not None:
+            st.altair_chart(event_chart, use_container_width=True)
+        else:
+            st.warning("No event probability data available.")
 
         if not afd_data_list and not obs_data_list:
             st.warning(
@@ -210,12 +254,46 @@ def main_view():
                             f"with {len(sample_names)} sample(s)"
                         )
 
+                        prob_fields = {}
+                        for info_key, info_value in record.info.items():
+                            if not info_key.startswith("PROB_"):
+                                continue
+                            if isinstance(info_value, Sequence) and not isinstance(
+                                info_value, str
+                            ):
+                                info_value = info_value[0] if info_value else None
+                            if info_value is not None:
+                                prob_fields[info_key.removeprefix("PROB_")] = str(
+                                    info_value
+                                )
+
+                        afd_fields = {}
+                        obs_fields = {}
+                        for sname in sample_names:
+                            s = record.samples[sname]
+                            afd = s.get("AFD")
+                            if isinstance(afd, Sequence) and not isinstance(afd, str):
+                                afd = afd[0] if afd else None
+                            if afd is not None:
+                                afd_fields[str(sname)] = str(afd)
+
+                            obs = s.get("OBS")
+                            if isinstance(obs, Sequence) and not isinstance(obs, str):
+                                obs = obs[0] if obs else None
+                            if obs is not None:
+                                obs_fields[str(sname)] = str(obs)
+
+                        render_copy_link_button(
+                            build_query_string(prob_fields, afd_fields, obs_fields)
+                        )
+
                         prob_data = ProbData.from_record(record)
                         st.header("Event Probabilities")
-                        st.altair_chart(
-                            plotting.visualize_event_probabilities(prob_data),
-                            use_container_width=True,
-                        )
+                        event_chart = plotting.visualize_event_probabilities(prob_data)
+                        if event_chart is not None:
+                            st.altair_chart(event_chart, use_container_width=True)
+                        else:
+                            st.warning("No event probability data available.")
 
                         if not sample_names:
                             st.warning(
