@@ -6,12 +6,7 @@ from itertools import chain
 
 import pysam
 import streamlit as st
-import streamlit.components.v1 as components
 
-import pysam
-import tempfile
-import os
-import re
 from varlociraptor_inspect import plotting
 from varlociraptor_inspect.description import build_record_description
 from varlociraptor_inspect.plotting import AFDData, OBSData, ProbData
@@ -97,7 +92,7 @@ async def render_webllm_chat(description: str, key: str) -> None:
     """Render an in-browser chat using WebLLM with native Streamlit widgets."""
     try:
         import js  # type: ignore[import-not-found]
-        from pyodide.ffi import to_js  # type: ignore[import-not-found]
+        from pyodide.ffi import JsException, to_js  # type: ignore[import-not-found]
     except ImportError:
         st.info(
             "In-browser chat is only available in the "
@@ -136,6 +131,13 @@ async def render_webllm_chat(description: str, key: str) -> None:
     )
 
     if not st.session_state[engine_ready_key]:
+        if not hasattr(js.navigator, "gpu") or js.navigator.gpu is None:
+            st.warning(
+                "Your browser does not support WebGPU, which is required for "
+                "in-browser chat. Please use a recent version of Chrome or Edge."
+            )
+            return
+
         selected_model = st.selectbox(
             "Select model",
             options=list(models.keys()),
@@ -144,8 +146,14 @@ async def render_webllm_chat(description: str, key: str) -> None:
         if st.button("Load model & start chat", key=f"webllm_load_{key}"):
             model_id = models[selected_model]
             with st.spinner(f"Downloading and loading {selected_model}..."):
-                webllm = await js.eval("import('https://esm.run/@mlc-ai/web-llm')")
-                engine = await webllm.CreateMLCEngine(model_id)
+                try:
+                    webllm = await js.eval(
+                        "import('https://esm.run/@mlc-ai/web-llm@0.2.74')"
+                    )
+                    engine = await webllm.CreateMLCEngine(model_id)
+                except (JsException, OSError) as e:
+                    st.error(f"Failed to load the model: {e!s}")
+                    return
                 js.globalThis._webllmEngine = engine
             st.session_state[engine_ready_key] = True
             st.rerun()
@@ -172,8 +180,11 @@ async def render_webllm_chat(description: str, key: str) -> None:
                     {"messages": messages},
                     dict_converter=js.Object.fromEntries,
                 )
-                response = await engine.chat.completions.create(opts)
-                reply = str(response.choices[0].message.content)
+                try:
+                    response = await engine.chat.completions.create(opts)
+                    reply = str(response.choices[0].message.content)
+                except (JsException, OSError) as e:
+                    reply = f"Error during inference: {e!s}"
             st.write(reply)
             st.session_state[history_key].append(
                 {"role": "assistant", "content": reply}
