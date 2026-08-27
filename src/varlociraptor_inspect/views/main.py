@@ -102,10 +102,13 @@ async def render_webllm_chat(description: str, key: str) -> None:
 
     engine_ready_key = f"webllm_ready_{key}"
     history_key = f"webllm_history_{key}"
+    fingerprint_key = f"webllm_fingerprint_{key}"
+    description_fingerprint = hashlib.md5(description.encode()).hexdigest()[:8]
 
     if engine_ready_key not in st.session_state:
         st.session_state[engine_ready_key] = False
-    if history_key not in st.session_state:
+    if st.session_state.get(fingerprint_key) != description_fingerprint:
+        st.session_state[fingerprint_key] = description_fingerprint
         st.session_state[history_key] = []
 
     system_prompt = (
@@ -240,6 +243,9 @@ async def main_view():
         else:
             st.warning("No event probability data available.")
 
+        afd_by_sample: dict[str, AFDData | None] = {}
+        obs_by_sample: dict[str, OBSData] = {}
+
         if not afd_data_list and not obs_data_list:
             st.warning(
                 "No sample data found in URL parameters. Showing event probabilities only."
@@ -281,12 +287,10 @@ async def main_view():
                         f"No observation data available for sample {sample_name}."
                     )
 
-            description = build_record_description(
-                prob_data, afd_by_sample, obs_by_sample
-            )
-            st.divider()
-            st.header("Chat with this record")
-            await render_webllm_chat(description, key="url")
+        description = build_record_description(prob_data, afd_by_sample, obs_by_sample)
+        st.divider()
+        st.header("Chat with this record")
+        await render_webllm_chat(description, key="url")
 
     else:
         record_text = st.text_area(
@@ -424,6 +428,9 @@ async def main_view():
                         else:
                             st.warning("No event probability data available.")
 
+                        afd_by_sample: dict[str, AFDData | None] = {}
+                        obs_by_sample: dict[str, OBSData] = {}
+
                         if not sample_names:
                             st.warning(
                                 "No sample data found. Showing event probabilities only."
@@ -464,20 +471,21 @@ async def main_view():
                                 str(s): OBSData.from_record(record, str(s))
                                 for s in sample_names
                             }
-                            description = build_record_description(
-                                prob_data,
-                                afd_by_sample,
-                                obs_by_sample,
-                                variant_info={
-                                    "chrom": str(record.chrom),
-                                    "pos": str(record.pos),
-                                    "ref": str(record.ref),
-                                    "alt": ",".join(str(a) for a in record.alts or ()),
-                                },
-                            )
-                            st.divider()
-                            st.header("Chat with this record")
-                            await render_webllm_chat(description, key="paste")
+
+                        description = build_record_description(
+                            prob_data,
+                            afd_by_sample,
+                            obs_by_sample,
+                            variant_info={
+                                "chrom": str(record.chrom),
+                                "pos": str(record.pos),
+                                "ref": str(record.ref),
+                                "alt": ",".join(str(a) for a in record.alts or ()),
+                            },
+                        )
+                        st.divider()
+                        st.header("Chat with this record")
+                        await render_webllm_chat(description, key="paste")
                 finally:
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
