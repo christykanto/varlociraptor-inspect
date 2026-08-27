@@ -3,7 +3,7 @@ import re
 import tempfile
 from collections.abc import Sequence
 from itertools import chain
-
+import hashlib
 import pysam
 import streamlit as st
 
@@ -227,12 +227,16 @@ async def main_view():
         obs_fields = {
             k.removeprefix("OBS_"): v for k, v in params.items() if k.startswith("OBS_")
         }
+        record_key = hashlib.md5(str(sorted(params.items())).encode()).hexdigest()[:8]
+
         render_copy_link_button(build_query_string(prob_fields, afd_fields, obs_fields))
 
         st.header("Event Probabilities")
         event_chart = plotting.visualize_event_probabilities(prob_data)
         if event_chart is not None:
-            st.altair_chart(event_chart, use_container_width=True)
+            st.altair_chart(
+                event_chart, use_container_width=True, key=f"event_probs_{record_key}"
+            )
         else:
             st.warning("No event probability data available.")
 
@@ -257,6 +261,7 @@ async def main_view():
                     st.altair_chart(
                         plotting.visualize_allele_frequency_distribution(afd),
                         use_container_width=True,
+                        key=f"afd_{record_key}_{sample_name}",
                     )
                 else:
                     st.warning(
@@ -267,7 +272,9 @@ async def main_view():
                 st.subheader("Observations")
                 if obs is not None:
                     st.altair_chart(
-                        plotting.visualize_observations(obs), use_container_width=True
+                        plotting.visualize_observations(obs),
+                        use_container_width=True,
+                        key=f"obs_{record_key}_{sample_name}",
                     )
                 else:
                     st.warning(
@@ -400,11 +407,20 @@ async def main_view():
                             build_query_string(prob_fields, afd_fields, obs_fields)
                         )
 
+                        record_key = hashlib.md5(
+                            f"{record.chrom}:{record.pos}:{record.ref}:"
+                            f"{','.join(str(a) for a in record.alts or ())}".encode()
+                        ).hexdigest()[:8]
+
                         prob_data = ProbData.from_record(record)
                         st.header("Event Probabilities")
                         event_chart = plotting.visualize_event_probabilities(prob_data)
                         if event_chart is not None:
-                            st.altair_chart(event_chart, use_container_width=True)
+                            st.altair_chart(
+                                event_chart,
+                                use_container_width=True,
+                                key=f"event_probs_{record_key}",
+                            )
                         else:
                             st.warning("No event probability data available.")
 
@@ -425,6 +441,7 @@ async def main_view():
                                             afd
                                         ),
                                         use_container_width=True,
+                                        key=f"afd_{record_key}_{sample_name}",
                                     )
                                 else:
                                     st.warning(
@@ -436,6 +453,7 @@ async def main_view():
                                 st.altair_chart(
                                     plotting.visualize_observations(obs),
                                     use_container_width=True,
+                                    key=f"obs_{record_key}_{sample_name}",
                                 )
 
                             afd_by_sample = {
