@@ -1,12 +1,15 @@
-from itertools import chain
-from typing import Sequence
-import streamlit as st
-import pysam
-import tempfile
 import os
 import re
+import tempfile
+from collections.abc import Sequence
+from itertools import chain
+import hashlib
+import pysam
+import streamlit as st
+
 from varlociraptor_inspect import plotting
-from varlociraptor_inspect.plotting import ProbData, AFDData, OBSData
+from varlociraptor_inspect.description import build_record_description
+from varlociraptor_inspect.plotting import AFDData, OBSData, ProbData
 
 
 def normalize_whitespace(text: str) -> str:
@@ -85,7 +88,113 @@ def render_copy_link_button(query_string: str) -> None:
     st.code(url, language=None, wrap_lines=True)
 
 
-def main_view():
+async def render_webllm_chat(description: str, key: str) -> None:
+    """Render an in-browser chat using WebLLM with native Streamlit widgets."""
+    try:
+        import js  # type: ignore[import-not-found]
+        from pyodide.ffi import JsException, to_js  # type: ignore[import-not-found]
+    except ImportError:
+        st.info(
+            "In-browser chat is only available in the "
+            "[web deployment](https://varlociraptor.github.io/varlociraptor-inspect/)."
+        )
+        return
+
+    engine_ready_key = f"webllm_ready_{key}"
+    history_key = f"webllm_history_{key}"
+    fingerprint_key = f"webllm_fingerprint_{key}"
+    description_fingerprint = hashlib.md5(description.encode()).hexdigest()[:8]
+
+    if engine_ready_key not in st.session_state:
+        st.session_state[engine_ready_key] = False
+    if st.session_state.get(fingerprint_key) != description_fingerprint:
+        st.session_state[fingerprint_key] = description_fingerprint
+        st.session_state[history_key] = []
+
+    system_prompt = (
+        description
+        + "\n\nYou are a helpful assistant answering questions about the variant "
+        "record above. Always cite the specific numbers from the data above "
+        "(probabilities, allele frequencies, read counts) in your answer. "
+        "Do not give generic definitions - explain what these specific numbers "
+        "imply about this specific variant. If something is not present in the "
+        "data, say so instead of guessing."
+    )
+
+    models = {
+        "Qwen2.5 0.5B (fastest, ~0.4GB)": "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+        "Llama 3.2 1B (fast, ~0.9GB)": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+        "Phi-3.5 mini (better quality, ~2.2GB)": "Phi-3.5-mini-instruct-q4f16_1-MLC",
+    }
+
+    st.caption(
+        "Chat with this record using a small language model that runs entirely "
+        "in your browser (nothing is sent to a server). Requires a WebGPU-capable "
+        "browser (recent Chrome/Edge)."
+    )
+
+    if not st.session_state[engine_ready_key]:
+        if not hasattr(js.navigator, "gpu") or js.navigator.gpu is None:
+            st.warning(
+                "Your browser does not support WebGPU, which is required for "
+                "in-browser chat. Please use a recent version of Chrome or Edge."
+            )
+            return
+
+        selected_model = st.selectbox(
+            "Select model",
+            options=list(models.keys()),
+            key=f"webllm_model_{key}",
+        )
+        if st.button("Load model & start chat", key=f"webllm_load_{key}"):
+            model_id = models[selected_model]
+            with st.spinner(f"Downloading and loading {selected_model}..."):
+                try:
+                    webllm = await js.eval(
+                        "import('https://esm.run/@mlc-ai/web-llm@0.2.74')"
+                    )
+                    engine = await webllm.CreateMLCEngine(model_id)
+                except (JsException, OSError) as e:
+                    st.error(f"Failed to load the model: {e!s}")
+                    return
+                js.globalThis._webllmEngine = engine
+            st.session_state[engine_ready_key] = True
+            st.rerun()
+        return
+
+    for msg in st.session_state[history_key]:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    if prompt := st.chat_input(
+        "Ask a question about this record...",
+        key=f"webllm_input_{key}",
+    ):
+        st.session_state[history_key].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                engine = js.globalThis._webllmEngine
+                messages = [{"role": "system", "content": system_prompt}]
+                messages.extend(st.session_state[history_key])
+                opts = to_js(
+                    {"messages": messages},
+                    dict_converter=js.Object.fromEntries,
+                )
+                try:
+                    response = await engine.chat.completions.create(opts)
+                    reply = str(response.choices[0].message.content)
+                except (JsException, OSError) as e:
+                    reply = f"Error during inference: {e!s}"
+            st.write(reply)
+            st.session_state[history_key].append(
+                {"role": "assistant", "content": reply}
+            )
+
+
+async def main_view():
     st.set_page_config(page_title="Varlociraptor Inspect")
     st.title("Varlociraptor Inspect")
     st.text("Visual inspection of Varlociraptor VCF records.")
@@ -121,14 +230,21 @@ def main_view():
         obs_fields = {
             k.removeprefix("OBS_"): v for k, v in params.items() if k.startswith("OBS_")
         }
+        record_key = hashlib.md5(str(sorted(params.items())).encode()).hexdigest()[:8]
+
         render_copy_link_button(build_query_string(prob_fields, afd_fields, obs_fields))
 
         st.header("Event Probabilities")
         event_chart = plotting.visualize_event_probabilities(prob_data)
         if event_chart is not None:
-            st.altair_chart(event_chart, use_container_width=True)
+            st.altair_chart(
+                event_chart, use_container_width=True, key=f"event_probs_{record_key}"
+            )
         else:
             st.warning("No event probability data available.")
+
+        afd_by_sample: dict[str, AFDData | None] = {}
+        obs_by_sample: dict[str, OBSData] = {}
 
         if not afd_data_list and not obs_data_list:
             st.warning(
@@ -151,6 +267,7 @@ def main_view():
                     st.altair_chart(
                         plotting.visualize_allele_frequency_distribution(afd),
                         use_container_width=True,
+                        key=f"afd_{record_key}_{sample_name}",
                     )
                 else:
                     st.warning(
@@ -161,12 +278,19 @@ def main_view():
                 st.subheader("Observations")
                 if obs is not None:
                     st.altair_chart(
-                        plotting.visualize_observations(obs), use_container_width=True
+                        plotting.visualize_observations(obs),
+                        use_container_width=True,
+                        key=f"obs_{record_key}_{sample_name}",
                     )
                 else:
                     st.warning(
                         f"No observation data available for sample {sample_name}."
                     )
+
+        description = build_record_description(prob_data, afd_by_sample, obs_by_sample)
+        st.divider()
+        st.header("Chat with this record")
+        await render_webllm_chat(description, key="url")
 
     else:
         record_text = st.text_area(
@@ -287,13 +411,25 @@ def main_view():
                             build_query_string(prob_fields, afd_fields, obs_fields)
                         )
 
+                        record_key = hashlib.md5(
+                            f"{record.chrom}:{record.pos}:{record.ref}:"
+                            f"{','.join(str(a) for a in record.alts or ())}".encode()
+                        ).hexdigest()[:8]
+
                         prob_data = ProbData.from_record(record)
                         st.header("Event Probabilities")
                         event_chart = plotting.visualize_event_probabilities(prob_data)
                         if event_chart is not None:
-                            st.altair_chart(event_chart, use_container_width=True)
+                            st.altair_chart(
+                                event_chart,
+                                use_container_width=True,
+                                key=f"event_probs_{record_key}",
+                            )
                         else:
                             st.warning("No event probability data available.")
+
+                        afd_by_sample: dict[str, AFDData | None] = {}
+                        obs_by_sample: dict[str, OBSData] = {}
 
                         if not sample_names:
                             st.warning(
@@ -312,6 +448,7 @@ def main_view():
                                             afd
                                         ),
                                         use_container_width=True,
+                                        key=f"afd_{record_key}_{sample_name}",
                                     )
                                 else:
                                     st.warning(
@@ -323,10 +460,35 @@ def main_view():
                                 st.altair_chart(
                                     plotting.visualize_observations(obs),
                                     use_container_width=True,
+                                    key=f"obs_{record_key}_{sample_name}",
                                 )
+
+                            afd_by_sample = {
+                                str(s): AFDData.from_record(record, str(s))
+                                for s in sample_names
+                            }
+                            obs_by_sample = {
+                                str(s): OBSData.from_record(record, str(s))
+                                for s in sample_names
+                            }
+
+                        description = build_record_description(
+                            prob_data,
+                            afd_by_sample,
+                            obs_by_sample,
+                            variant_info={
+                                "chrom": str(record.chrom),
+                                "pos": str(record.pos),
+                                "ref": str(record.ref),
+                                "alt": ",".join(str(a) for a in record.alts or ()),
+                            },
+                        )
+                        st.divider()
+                        st.header("Chat with this record")
+                        await render_webllm_chat(description, key="paste")
                 finally:
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
 
-            except Exception as e:
-                st.error(f"Error parsing VCF record: {str(e)}")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Error parsing VCF record: {e!s}")
