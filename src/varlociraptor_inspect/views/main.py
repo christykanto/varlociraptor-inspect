@@ -114,17 +114,30 @@ async def render_webllm_chat(description: str, key: str) -> None:
     system_prompt = (
         description
         + "\n\nYou are a helpful assistant answering questions about the variant "
-        "record above. Always cite the specific numbers from the data above "
-        "(probabilities, allele frequencies, read counts) in your answer. "
-        "Do not give generic definitions - explain what these specific numbers "
-        "imply about this specific variant. If something is not present in the "
-        "data, say so instead of guessing."
+        "record above. Always cite the exact numbers from the data above, copied "
+        "verbatim - never estimate, round, or recompute them yourself. When asked "
+        "how many reads support the variant, use the 'ALT-supporting reads' count, "
+        "never the REF-supporting count or the allele frequency (AF is a fraction "
+        "between 0 and 1, not a read count - never confuse the two). Double-check "
+        "which sample and which number you are citing before answering.\n\n"
+        "When asked about strand bias, orientation bias, read-position bias, or "
+        "softclip bias: the PROB_ARTIFACT event captures exactly these biases "
+        "combined. A low PROB_ARTIFACT probability means there is little to no "
+        "evidence of bias - state this explicitly, and do not conclude there is a "
+        "bias just because the ALT-supporting reads happen to share a strand or "
+        "orientation category; a small number of reads naturally cluster by "
+        "chance. Only call it a bias if PROB_ARTIFACT is high.\n\n"
+        "Never answer in a single word or a short phrase - always explain your "
+        "reasoning in 2-3 sentences, referencing the specific numbers that led to "
+        "your answer. Do not give generic definitions - explain what these "
+        "specific numbers imply about this specific variant. If something is not "
+        "present in the data, say so instead of guessing."
     )
 
     models = {
-        "Qwen2.5 0.5B (fastest, ~0.4GB)": "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
-        "Llama 3.2 1B (fast, ~0.9GB)": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+        "Llama 3.2 1B (recommended, ~0.9GB)": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
         "Phi-3.5 mini (better quality, ~2.2GB)": "Phi-3.5-mini-instruct-q4f16_1-MLC",
+        "Qwen2.5 0.5B (fastest, less accurate)": "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
     }
 
     st.caption(
@@ -180,7 +193,7 @@ async def render_webllm_chat(description: str, key: str) -> None:
                 messages = [{"role": "system", "content": system_prompt}]
                 messages.extend(st.session_state[history_key])
                 opts = to_js(
-                    {"messages": messages},
+                    {"messages": messages, "temperature": 0},
                     dict_converter=js.Object.fromEntries,
                 )
                 try:
@@ -237,9 +250,7 @@ async def main_view():
         st.header("Event Probabilities")
         event_chart = plotting.visualize_event_probabilities(prob_data)
         if event_chart is not None:
-            st.altair_chart(
-                event_chart, use_container_width=True, key=f"event_probs_{record_key}"
-            )
+            st.altair_chart(event_chart, key=f"event_probs_{record_key}")
         else:
             st.warning("No event probability data available.")
 
@@ -266,7 +277,6 @@ async def main_view():
                 if afd is not None:
                     st.altair_chart(
                         plotting.visualize_allele_frequency_distribution(afd),
-                        use_container_width=True,
                         key=f"afd_{record_key}_{sample_name}",
                     )
                 else:
@@ -279,7 +289,6 @@ async def main_view():
                 if obs is not None:
                     st.altair_chart(
                         plotting.visualize_observations(obs),
-                        use_container_width=True,
                         key=f"obs_{record_key}_{sample_name}",
                     )
                 else:
@@ -422,7 +431,6 @@ async def main_view():
                         if event_chart is not None:
                             st.altair_chart(
                                 event_chart,
-                                use_container_width=True,
                                 key=f"event_probs_{record_key}",
                             )
                         else:
@@ -447,7 +455,6 @@ async def main_view():
                                         plotting.visualize_allele_frequency_distribution(
                                             afd
                                         ),
-                                        use_container_width=True,
                                         key=f"afd_{record_key}_{sample_name}",
                                     )
                                 else:
@@ -459,7 +466,6 @@ async def main_view():
                                 st.subheader("Observations")
                                 st.altair_chart(
                                     plotting.visualize_observations(obs),
-                                    use_container_width=True,
                                     key=f"obs_{record_key}_{sample_name}",
                                 )
 

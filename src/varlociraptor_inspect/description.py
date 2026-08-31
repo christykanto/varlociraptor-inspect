@@ -39,27 +39,36 @@ def _describe_obs(obs: OBSData | None, sample_name: str) -> str:
     if obs is None or (not obs.ref_observations and not obs.alt_observations):
         return f"Sample {sample_name}: no read observation data available."
 
+    def category_breakdown(entries, field_name):
+        counts: dict[str, int] = {}
+        for e in entries:
+            val = getattr(e, field_name)
+            counts[val] = counts.get(val, 0) + e.count
+        return ", ".join(
+            f"{v} {k}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])
+        )
+
     def summarize(entries, label):
         if not entries:
             return f"  {label}: 0 reads."
         total = sum(e.count for e in entries)
-        high_mapq = sum(e.count for e in entries if e.mapq == "High MAPQ")
-        odds_breakdown: dict[str, int] = {}
-        for e in entries:
-            odds_breakdown[e.posterior_odds] = (
-                odds_breakdown.get(e.posterior_odds, 0) + e.count
-            )
-        odds_str = ", ".join(
-            f"{v} {k}" for k, v in sorted(odds_breakdown.items(), key=lambda kv: -kv[1])
-        )
-        return (
-            f"  {label}: {total} reads total, {high_mapq} with high mapping quality. "
-            f"Evidence strength breakdown: {odds_str}."
-        )
+        odds_str = category_breakdown(entries, "posterior_odds")
+        strand_str = category_breakdown(entries, "strand")
+        return f"  {label}: {total} reads. Evidence strength: {odds_str}. Strand: {strand_str}."
 
-    lines = [f"Sample {sample_name}: read-level observations."]
-    lines.append(summarize(obs.ref_observations, "Reference allele"))
-    lines.append(summarize(obs.alt_observations, "Alternative allele"))
+    alt_total = sum(e.count for e in obs.alt_observations)
+    ref_total = sum(e.count for e in obs.ref_observations)
+    lines = [
+        f"Sample {sample_name}: {alt_total} reads support the ALT (variant) allele, "
+        f"{ref_total} reads support the REF/other allele "
+        f"({alt_total + ref_total} total observations)."
+    ]
+    lines.append(
+        f"IMPORTANT: the number of reads supporting THIS variant in sample "
+        f"{sample_name} is exactly {alt_total}."
+    )
+    lines.append(summarize(obs.alt_observations, "ALT-supporting reads"))
+    lines.append(summarize(obs.ref_observations, "REF-supporting reads"))
     return "\n".join(lines)
 
 
