@@ -365,7 +365,19 @@ async def main_view():
                     for line in lines:
                         if line.startswith("#CHROM"):
                             column_header = line
-                        elif not line.startswith("#") and line.strip():
+                            continue
+                        if not line.strip():
+                            continue
+                        first_fields = line.split("\t")
+                        if (
+                            column_header is None
+                            and len(first_fields) >= 8
+                            and first_fields[0].strip().lstrip("#") == "CHROM"
+                            and first_fields[1].strip() == "POS"
+                        ):
+                            column_header = line if line.startswith("#") else f"#{line}"
+                            continue
+                        if not line.startswith("#"):
                             data_line = line
                             break
 
@@ -376,6 +388,20 @@ async def main_view():
                             raise ValueError(
                                 "VCF record must have at least 8 tab-separated columns"
                             )
+
+                        if len(fields) > 9:
+                            format_field_count = len(fields[8].split(":"))
+                            for i, sample_value in enumerate(fields[9:], start=1):
+                                sample_field_count = len(sample_value.split(":"))
+                                if sample_field_count != format_field_count:
+                                    raise ValueError(
+                                        f"Sample {i} has {sample_field_count} "
+                                        f"colon-separated values, but the FORMAT "
+                                        f"column declares {format_field_count} "
+                                        f"fields ({fields[8]}). Check for a "
+                                        f"missing/extra value, or a stray tab or "
+                                        f"space inside a sample's OBS string."
+                                    )
 
                         chrom = fields[0]
                         pos = int(fields[1])
@@ -401,14 +427,19 @@ async def main_view():
                         )
 
                         if not column_header:
-                            num_samples = len(fields) - 9
-                            sample_names = [
-                                f"sample{i + 1}" for i in range(num_samples)
-                            ]
-                            column_header = (
-                                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
-                                + "\t".join(sample_names)
-                            )
+                            if len(fields) >= 9:
+                                num_samples = len(fields) - 9
+                                sample_names = [
+                                    f"sample{i + 1}" for i in range(num_samples)
+                                ]
+                                column_header = (
+                                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+                                    + "\t".join(sample_names)
+                                )
+                            else:
+                                column_header = (
+                                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"
+                                )
 
                         record_text = (
                             "\n".join(header_lines)
@@ -424,7 +455,18 @@ async def main_view():
                         tmp.write(record_text)
 
                     with pysam.VariantFile(tmp_path) as vcf:
-                        record = next(vcf)
+                        try:
+                            record = next(vcf)
+                        except StopIteration:
+                            raise ValueError(
+                                "No VCF record found in the pasted text."
+                            ) from None
+                        except Exception as parse_err:
+                            raise ValueError(
+                                f"Could not parse this VCF record - check that "
+                                f"the INFO/FORMAT fields and sample values are "
+                                f"well-formed ({parse_err!s})."
+                            ) from parse_err
                         sample_names = list(record.samples.keys())
 
                         st.success(
