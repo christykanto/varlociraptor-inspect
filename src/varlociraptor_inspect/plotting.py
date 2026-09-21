@@ -403,6 +403,7 @@ def visualize_observations(obs_data: OBSData):
                     }
                 )
         df = pd.DataFrame(rows)
+        df = df.groupby(["Metric", "Category"], as_index=False)["Count"].sum()
         edit_values = (
             df[df["Metric"] == "Edit Distance"]["Category"].astype(int).unique()
         )
@@ -424,7 +425,6 @@ def visualize_observations(obs_data: OBSData):
                 title="Count" if show_y_axis else None,
                 axis=None if not show_y_axis else alt.Axis(),
             ),
-            alt.Order("obs_index:Q"),
             alt.Tooltip(["Metric", "Category", "Count"]),
         )
         odds_layer = (
