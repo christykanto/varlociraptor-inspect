@@ -339,6 +339,15 @@ async def render_webllm_chat(
                                 "high PROB_ARTIFACT would indicate bias instead."
                             ),
                         },
+                        {"role": "user", "content": "Why is observation posterior odds very strong although the observation has an edit distance of 5 to the ALT allele?"},
+                        {
+                            "role": "assistant",
+                            "content": (
+                                "Support can still be strong if the respective read has many low quality bases "
+                                "that would explain the high edit distance while at the same time having even "
+                                "worse likelihoods for all other considered alleles."
+                            ),
+                        },
                     ]
                     messages = [{"role": "system", "content": system_prompt}]
                     messages.extend(few_shot_examples)
