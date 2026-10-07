@@ -103,7 +103,7 @@ def _answer_read_support(obs_by_sample: Mapping[str, OBSData | None]) -> str:
             continue
         alt_total = sum(e.count for e in obs.alt_observations)
         lines.append(
-            f"**{sample_name}:** {alt_total} reads support the ALT (variant) allele."
+            f"**{sample_name}:** {alt_total} fragments support the ALT (variant) allele."
         )
     return "\n\n".join(lines) if lines else "No read observation data available."
 
@@ -114,11 +114,16 @@ def _answer_bias(prob_data: ProbData) -> str:
         return "No PROB_ARTIFACT value available for this record."
     if artifact.probability > 0.5:
         return (
-            f"Likely bias present - PROB_ARTIFACT probability is "
+            f"Likely artifact present - PROB_ARTIFACT probability is "
             f"{artifact.probability:.4f} (high)."
         )
+    if artifact.probability > 0.05:
+        return (
+            f"Some evidence of an artifact - PROB_ARTIFACT probability is "
+            f"{artifact.probability:.4f} (moderate)."
+        )
     return (
-        f"No strong evidence of bias - PROB_ARTIFACT probability is "
+        f"No strong evidence of an artifact - PROB_ARTIFACT probability is "
         f"{artifact.probability:.4f} (low)."
     )
 
@@ -145,7 +150,7 @@ def _answer_top_sample(obs_by_sample: Mapping[str, OBSData | None]) -> str:
             best_sample = sample_name
     if best_sample is None:
         return "No read observation data available."
-    return f"**{best_sample}** has the most ALT-supporting reads ({best_count})."
+    return f"**{best_sample}** has the most ALT-supporting fragments ({best_count})."
 
 
 def _answer_total_observations(obs_by_sample: Mapping[str, OBSData | None]) -> str:
@@ -175,7 +180,7 @@ async def render_webllm_chat(
     with tab_quick:
         st.caption("Instant answers computed directly from the data - no LLM involved.")
         faq: list[tuple[str, str]] = [
-            ("ALT-supporting reads (per sample)?", "reads"),
+            ("ALT-supporting fragments (per sample)?", "reads"),
             ("Any bias?", "bias"),
             ("Most likely event?", "event"),
             ("Which sample has most support?", "top_sample"),
@@ -235,7 +240,7 @@ async def render_webllm_chat(
             "You are a helpful assistant answering questions about the variant "
             "record above. Always cite the exact numbers from the data above, copied "
             "verbatim - never estimate, round, or recompute them yourself. When asked "
-            "how many reads support the variant, use the 'ALT-supporting reads' count, "
+            "how many fragments support the variant, use the 'ALT-supporting fragments' count, "
             "never the REF-supporting count or the allele frequency (AF is a fraction "
             "between 0 and 1, not a read count - never confuse the two). Double-check "
             "which sample and which number you are citing before answering.\n\n"
@@ -243,7 +248,7 @@ async def render_webllm_chat(
             "softclip bias: the PROB_ARTIFACT event captures exactly these biases "
             "combined. A low PROB_ARTIFACT probability means there is little to no "
             "evidence of bias - state this explicitly, and do not conclude there is a "
-            "bias just because the ALT-supporting reads happen to share a strand or "
+            "bias just because the ALT-supporting fragments happen to share a strand or "
             "orientation category; a small number of reads naturally cluster by "
             "chance. Only call it a bias if PROB_ARTIFACT is high.\n\n"
             "Never answer in a single word or a short phrase - always explain your "
@@ -319,13 +324,13 @@ async def render_webllm_chat(
                     few_shot_examples = [
                         {
                             "role": "user",
-                            "content": "How many reads support the variant in sample X?",
+                            "content": "How many fragments support the variant in sample X?",
                         },
                         {
                             "role": "assistant",
                             "content": (
-                                "4 reads support the ALT (variant) allele in sample X. "
-                                "This is the 'ALT-supporting reads' count copied directly "
+                                "4 fragments support the ALT (variant) allele in sample X. "
+                                "This is the 'ALT-supporting fragments' count copied directly "
                                 "from the data above, not calculated or estimated."
                             ),
                         },
