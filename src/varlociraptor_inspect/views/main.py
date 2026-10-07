@@ -344,7 +344,10 @@ async def render_webllm_chat(
                                 "high PROB_ARTIFACT would indicate bias instead."
                             ),
                         },
-                        {"role": "user", "content": "Why is observation posterior odds very strong although the observation has an edit distance of 5 to the ALT allele?"},
+                        {
+                            "role": "user",
+                            "content": "Why is observation posterior odds very strong although the observation has an edit distance of 5 to the ALT allele?",
+                        },
                         {
                             "role": "assistant",
                             "content": (
