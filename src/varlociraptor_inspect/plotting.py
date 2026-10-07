@@ -372,14 +372,35 @@ def visualize_observations(obs_data: OBSData):
         observations: list[ObsEntry], allele: str, show_y_axis=True, show_legend=True
     ):
         if not observations:
-            return (
-                alt.Chart(pd.DataFrame({"Metric": [], "Count": []}))
-                .mark_bar()
-                .properties(
-                    width=220,
-                    height=400,
-                    title=f"{allele} Allele Observations (No Data)",
+            empty_df = pd.DataFrame({"Metric": metrics, "Count": [0] * len(metrics)})
+            base_empty = alt.Chart(empty_df).encode(
+                alt.X("Metric:N", sort=metrics, title=None),
+                alt.Y(
+                    "Count:Q",
+                    scale=alt.Scale(domain=[0, max_count if max_count else 1]),
+                    title="Count" if show_y_axis else None,
+                    axis=None if not show_y_axis else alt.Axis(),
+                ),
+            )
+            bars = base_empty.mark_bar(opacity=0)
+            text = (
+                alt.Chart(pd.DataFrame({"x": [0], "y": [0]}))
+                .mark_text(
+                    align="center",
+                    baseline="middle",
+                    fontSize=14,
+                    color="#888888",
                 )
+                .encode(
+                    x=alt.value(110),
+                    y=alt.value(200),
+                    text=alt.value("No observations"),
+                )
+            )
+            return (bars + text).properties(
+                width=220,
+                height=400,
+                title=f"{allele} Allele Observations",
             )
         rows = []
         for obs in observations:
